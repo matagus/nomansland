@@ -88,6 +88,17 @@ safe-outputs:
           required: true
           type: string
       steps:
+        # gh pr merge resolves the branch through the local git repository, so this
+        # job must check the code out first; without it the command fails with
+        # "fatal: not a git repository".
+        - name: Checkout pull request
+          uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+          with:
+            persist-credentials: false
+            sparse-checkout: |
+              README.md
+            sparse-checkout-cone-mode: false
+            fetch-depth: 1
         - name: Resolve verdict
           id: verdict
           env:
