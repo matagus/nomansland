@@ -18,7 +18,7 @@ permissions:
   issues: read
 engine:
   id: pi
-  command: .github/pi-run.sh
+  command: bash .github/pi-run.sh
   # Backend prefix is forced by gh-aw; the real provider comes from PI_PROVIDER
   # below and the model name from PI_MODEL_IMPLEMENT.
   model: openai/${{ vars.PI_MODEL_IMPLEMENT }}

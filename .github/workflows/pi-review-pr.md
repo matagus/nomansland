@@ -17,7 +17,7 @@ permissions:
   pull-requests: read
 engine:
   id: pi
-  command: .github/pi-run.sh
+  command: bash .github/pi-run.sh
   model: openai/${{ vars.PI_MODEL_REVIEW }}
   env:
     PI_PROVIDER: ${{ vars.PI_PROVIDER }}
