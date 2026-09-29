@@ -1,7 +1,7 @@
 //! nomansland - a minimal command line greeter.
 //!
 //! Usage:
-//!   nomansland [--name <name>] [--count <n>] [--help]
+//!   nomansland [--name <name>] [--count <n>] [--help] [--]
 
 use std::env;
 use std::process::ExitCode;
@@ -36,9 +36,47 @@ Options:
   --name <name>     Who to greet (default: \"world\")
   --count <n>       How many times to greet (default: 1)
   --help, -h        Show this help text and exit
+  --                End of options; the next token is a plain value
 ";
 
+/// Recognized flag tokens (the `--` terminator itself is handled separately).
+fn is_flag_token(arg: &str) -> bool {
+    matches!(arg, "--name" | "--count" | "--help" | "-h")
+}
+
+/// Read the value for the option whose token sits at index `i`.
+///
+/// A `--` token in the value slot is the end-of-options escape: it is
+/// skipped and the token after it is taken verbatim as the value, so
+/// `--name -- --help` greets `--help`. Returns the value and the index of
+/// the first token after it.
+fn read_value(args: &[String], i: usize, opt: &str) -> Result<(String, usize), String> {
+    let mut j = i + 1;
+    if args.get(j).map(String::as_str) == Some("--") {
+        j += 1;
+    }
+    let value = args
+        .get(j)
+        .ok_or_else(|| format!("missing value for '{opt}'"))?;
+    Ok((value.clone(), j + 1))
+}
+
+/// Parse a `--count` value, keeping the shared error style for both the
+/// space-separated and `=` forms.
+fn parse_count(arg: &str, value: &str) -> Result<u32, String> {
+    let count = value.parse::<u32>().map_err(|_| {
+        format!("invalid value for '{arg}': expected a positive integer, got '{value}'")
+    })?;
+    validate_count(arg, count)?;
+    Ok(count)
+}
+
 /// Parse raw arguments into [`Options`].
+///
+/// Flag-like tokens are accepted as option values (`--name --help` greets
+/// `--help`), with one exception: a recognized flag in the `--count` value
+/// slot is reported as a missing value, since a flag can never be a valid
+/// count. A `--` token ends option parsing; see [`read_value`].
 ///
 /// Returns `Err(message)` when an argument is unknown or malformed.
 fn parse_args(args: &[String]) -> Result<Options, String> {
@@ -47,37 +85,44 @@ fn parse_args(args: &[String]) -> Result<Options, String> {
 
     while i < args.len() {
         let arg = args[i].as_str();
+        if arg == "--" {
+            // End of options. The program takes no positional values, so a
+            // lone trailing `--` is a no-op and anything after it is an error.
+            if let Some(rest) = args.get(i + 1) {
+                return Err(format!("unexpected argument: '{rest}'"));
+            }
+            break;
+        }
         match arg {
             "--help" | "-h" => {
                 opts.help = true;
                 return Ok(opts);
             }
             "--name" => {
-                let value = args
-                    .get(i + 1)
-                    .ok_or_else(|| format!("missing value for '{arg}'"))?;
-                opts.name = value.clone();
-                i += 2;
+                let (value, next) = read_value(args, i, arg)?;
+                opts.name = value;
+                i = next;
             }
             "--count" => {
-                let value = args
+                // A recognized flag in the value slot means the number itself
+                // is missing (`--count --name`), not that it is invalid.
+                if args
                     .get(i + 1)
-                    .ok_or_else(|| format!("missing value for '{arg}'"))?;
-                opts.count = value
-                    .parse::<u32>()
-                    .map_err(|_| format!("invalid value for '{arg}': expected a positive integer, got '{value}'"))?;
-                validate_count(arg, opts.count)?;
-                i += 2;
+                    .map(String::as_str)
+                    .is_some_and(is_flag_token)
+                {
+                    return Err(format!("missing value for '{arg}'"));
+                }
+                let (value, next) = read_value(args, i, arg)?;
+                opts.count = parse_count(arg, &value)?;
+                i = next;
             }
             other => {
                 if let Some(rest) = other.strip_prefix("--name=") {
                     opts.name = rest.to_string();
                     i += 1;
                 } else if let Some(rest) = other.strip_prefix("--count=") {
-                    opts.count = rest.parse::<u32>().map_err(|_| {
-                        format!("invalid value for '--count': expected a positive integer, got '{rest}'")
-                    })?;
-                    validate_count("--count", opts.count)?;
+                    opts.count = parse_count("--count", rest)?;
                     i += 1;
                 } else {
                     return Err(format!("unknown argument: '{other}'"));
@@ -318,13 +363,79 @@ mod tests {
         );
     }
 
-    // Edge: `--count --name` -> *invalid* (not missing) value error.
+    // Edge: `--count --name` -> *missing* value error (issue #19): a
+    // recognized flag in the value slot means the number itself is missing.
     #[test]
-    fn count_with_flag_like_value_is_invalid_not_missing() {
+    fn count_with_flag_like_value_is_missing_not_invalid() {
+        for flag in ["--name", "--count", "--help", "-h"] {
+            assert_eq!(
+                parse(&["--count", flag]),
+                Err("missing value for '--count'".to_string())
+            );
+        }
+    }
+
+    // Edge: `--count -- --name` -> the `--` escape forces the flag-like token
+    // to be taken as a literal value, so it is invalid, not missing.
+    #[test]
+    fn escaped_flag_like_count_value_is_invalid() {
         assert_eq!(
-            parse(&["--count", "--name"]),
-            Err("invalid value for '--count': expected a positive integer, got '--name'".to_string())
+            parse(&["--count", "--", "--name"]),
+            Err(
+                "invalid value for '--count': expected a positive integer, got '--name'"
+                    .to_string()
+            )
         );
+    }
+
+    // Edge: `--name -- --help` -> `hello, --help!` (issue #19): the `--`
+    // terminator in a value slot forces the next token as the value.
+    #[test]
+    fn double_dash_in_value_slot_forces_next_token_as_value() {
+        let opts = parse(&["--name", "--", "--help"]).expect("valid");
+        assert_eq!(
+            opts,
+            Options {
+                name: "--help".to_string(),
+                count: 1,
+                help: false
+            }
+        );
+        // A literal `--` can itself be forced as a value.
+        let opts = parse(&["--name", "--", "--"]).expect("valid");
+        assert_eq!(opts.name, "--");
+        // The escape also works for a normal value.
+        let opts = parse(&["--count", "--", "3"]).expect("valid");
+        assert_eq!(opts.count, 3);
+    }
+
+    // Edge: `--name --` (nothing after the terminator) -> missing value.
+    #[test]
+    fn double_dash_at_end_of_value_slot_is_missing_value() {
+        assert_eq!(
+            parse(&["--name", "--"]),
+            Err("missing value for '--name'".to_string())
+        );
+        assert_eq!(
+            parse(&["--count", "--"]),
+            Err("missing value for '--count'".to_string())
+        );
+    }
+
+    // Edge: `--` / `--name ada --` -> trailing terminator is a no-op;
+    // anything after it at the option position is rejected because the
+    // program takes no positional values. `--name=--` sets a literal `--`.
+    #[test]
+    fn double_dash_terminates_option_parsing() {
+        assert_eq!(parse(&["--"]), Ok(Options::default()));
+        let opts = parse(&["--name", "ada", "--"]).expect("valid");
+        assert_eq!(opts.name, "ada");
+        assert_eq!(
+            parse(&["--", "--name", "ada"]),
+            Err("unexpected argument: '--name'".to_string())
+        );
+        let opts = parse(&["--name=--"]).expect("valid");
+        assert_eq!(opts.name, "--");
     }
 
     // Edge: `--name a --name b` -> `hello, b!`, last one silently wins.
@@ -353,6 +464,9 @@ mod tests {
         assert!(USAGE.contains("--name <name>     Who to greet (default: \"world\")"));
         assert!(USAGE.contains("--count <n>       How many times to greet (default: 1)"));
         assert!(USAGE.contains("--help, -h        Show this help text and exit"));
-        assert!(USAGE.ends_with("Show this help text and exit\n"));
+        assert!(
+            USAGE.contains("--                End of options; the next token is a plain value")
+        );
+        assert!(USAGE.ends_with("the next token is a plain value\n"));
     }
 }

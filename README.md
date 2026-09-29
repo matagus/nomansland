@@ -26,6 +26,7 @@ Options:
   --name <name>     Who to greet (default: "world")
   --count <n>       How many times to greet (default: 1)
   --help, -h        Show this help text and exit
+  --                End of options; the next token is a plain value
 ```
 
 Both flags also accept the `--flag=value` form:
@@ -36,6 +37,32 @@ Both flags also accept the `--flag=value` form:
 
 No third-party dependencies — argument parsing is hand-rolled so the crate
 builds offline.
+
+## Option values and `--` (the parsing contract)
+
+The contract for flag-like strings (like `--help` or `-h`) appearing where
+an option value is expected:
+
+- **`--name` accepts any token as its value, including flag-like ones.**
+  The value of an option is simply the next token, whatever it looks like,
+  so `nomansland --name --help` prints `hello, --help!` and exits 0. This
+  is intended, not a bug.
+- **`--count` reports a *missing* value when the next token is a recognized
+  flag** (`--name`, `--count`, `--help`, `-h`): a flag can never be a valid
+  count, so `nomansland --count --name` fails with
+  `error: missing value for '--count'` rather than claiming `--name` is an
+  invalid number. Any other non-numeric token is still reported as an
+  invalid value (`--count abc`).
+- **`--` is the end-of-options terminator.** In a value slot it forces the
+  next token to be taken verbatim as the value even where the rules above
+  would reject or reinterpret it, so `nomansland --name -- --help` prints
+  `hello, --help!` unambiguously and `nomansland --count -- --name` fails
+  with `invalid value …` (the `--name` was explicitly supplied as the
+  value). At the option position a lone trailing `--` is a no-op, and
+  because the program takes no positional values, anything after `--`
+  there is rejected with `error: unexpected argument: '<arg>'`.
+- To pass a literal `--` as a value, use the `=` form (`--name=--`) or the
+  escape (`--name -- --`).
 
 ## Behaviour
 
@@ -53,6 +80,11 @@ binary and assert on its exact output and exit codes.
 | `--name` *(no value)* | `error: missing value for '--name'` | 1 |
 | `--bogus` | `error: unknown argument: '--bogus'` | 1 |
 | `--help`, `-h` | usage text | 0 |
+| `--name --help` | `hello, --help!` (flag-like values are accepted) | 0 |
+| `--count --name` | `error: missing value for '--count'` | 1 |
+| `--name -- --help` | `hello, --help!` (`--` forces the value) | 0 |
+| `--` *(alone)* | `hello, world!` (terminator is a no-op) | 0 |
+| `-- --name ada` | `error: unexpected argument: '--name'` | 1 |
 
 Names are printed exactly as supplied. Every error goes to stderr followed by the
 usage block.
