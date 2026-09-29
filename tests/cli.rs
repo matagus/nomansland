@@ -135,7 +135,7 @@ fn help_prints_usage_to_stdout() {
             "unexpected help text: {text}"
         );
         assert!(text.contains("Usage:") && text.contains("Options:"));
-        assert!(text.ends_with("Show this help text and exit\n"));
+        assert!(text.ends_with("the next token is a plain value\n"));
     }
 }
 
@@ -162,14 +162,69 @@ fn flag_like_values_are_consumed() {
     assert_eq!(stdout(&out), "hello, --help!\n");
 }
 
-// Edge: `--count --name` -> invalid (not missing) value error, exit 1.
+// Edge: `--count --name` -> missing (not invalid) value error, exit 1.
+// A recognized flag in the --count value slot means the number is missing.
 #[test]
-fn count_with_flag_like_value_errors_as_invalid() {
-    let out = run(&["--count", "--name"]);
+fn count_with_flag_like_value_reports_missing_value() {
+    for flag in ["--name", "--count", "--help", "-h"] {
+        let out = run(&["--count", flag]);
+        assert_error_shape(&out, "missing value for '--count'");
+    }
+}
+
+// Edge: `--name -- --help` -> `hello, --help!`, exit 0: the `--` terminator
+// in a value slot forces the next token to be taken as a plain value.
+#[test]
+fn double_dash_forces_flag_like_token_as_value() {
+    let out = run(&["--name", "--", "--help"]);
+    assert_eq!(code(&out), 0);
+    assert_eq!(stdout(&out), "hello, --help!\n");
+}
+
+// Edge: `--count -- --name` -> the escape forces a literal value, so the
+// flag-like token is invalid (not missing), exit 1.
+#[test]
+fn escaped_flag_like_count_value_is_invalid() {
+    let out = run(&["--count", "--", "--name"]);
     assert_error_shape(
         &out,
         "invalid value for '--count': expected a positive integer, got '--name'",
     );
+}
+
+// Edge: `--` alone (and after complete options) is a no-op, exit 0.
+#[test]
+fn lone_double_dash_is_a_noop() {
+    let out = run(&["--"]);
+    assert_eq!(code(&out), 0);
+    assert_eq!(stdout(&out), "hello, world!\n");
+
+    let out = run(&["--name", "ada", "--"]);
+    assert_eq!(code(&out), 0);
+    assert_eq!(stdout(&out), "hello, ada!\n");
+}
+
+// Edge: `-- --name ada` -> the program takes no positional values, so
+// anything after `--` at the option position is rejected, exit 1.
+#[test]
+fn arguments_after_double_dash_are_rejected() {
+    let out = run(&["--", "--name", "ada"]);
+    assert_error_shape(&out, "unexpected argument: '--name'");
+}
+
+// Edge: `--name --` -> missing value (nothing follows the terminator), exit 1.
+#[test]
+fn double_dash_without_following_value_is_missing() {
+    let out = run(&["--name", "--"]);
+    assert_error_shape(&out, "missing value for '--name'");
+}
+
+// Edge: `--name=--` -> `hello, --!`: the `=` form sets a literal `--`.
+#[test]
+fn equals_form_accepts_literal_double_dash() {
+    let out = run(&["--name=--"]);
+    assert_eq!(code(&out), 0);
+    assert_eq!(stdout(&out), "hello, --!\n");
 }
 
 // Edge: `--name a --name b` -> `hello, b!`, last one wins.
