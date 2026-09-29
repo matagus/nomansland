@@ -227,20 +227,64 @@ fn equals_form_accepts_literal_double_dash() {
     assert_eq!(stdout(&out), "hello, --!\n");
 }
 
-// Edge: `--name a --name b` -> `hello, b!`, last one wins.
+// Row: `--name a --name b` -> duplicate argument error, exit 1
+// (issue #25: repeated flags are rejected in all form mixes).
 #[test]
-fn repeated_name_flag_is_last_wins() {
-    let out = run(&["--name", "a", "--name", "b"]);
-    assert_eq!(code(&out), 0);
-    assert_eq!(stdout(&out), "hello, b!\n");
+fn repeated_name_flag_fails() {
+    for args in [
+        &["--name", "a", "--name", "b"][..],
+        &["--name=a", "--name=b"][..],
+        &["--name", "a", "--name=b"][..],
+        &["--name=a", "--name", "b"][..],
+    ] {
+        let out = run(args);
+        assert_error_shape(&out, "duplicate argument: '--name'");
+    }
 }
 
-// Edge: `--name ""` and `--name=` -> `hello, !`, exit 0.
+// Row: `--count 2 --count 5` -> duplicate argument error, exit 1.
 #[test]
-fn empty_names_are_accepted() {
-    for args in [&["--name", ""][..], &["--name="][..]] {
+fn repeated_count_flag_fails() {
+    for args in [
+        &["--count", "2", "--count", "5"][..],
+        &["--count=2", "--count", "5"][..],
+    ] {
         let out = run(args);
-        assert_eq!(code(&out), 0, "{args:?} should succeed");
-        assert_eq!(stdout(&out), "hello, !\n");
+        assert_error_shape(&out, "duplicate argument: '--count'");
     }
+}
+
+// Edge (issue #25): the duplicate participates in the left-to-right
+// short-circuit rule: it fires before a later --help can take over.
+#[test]
+fn duplicate_before_help_wins() {
+    let out = run(&["--name", "a", "--name", "b", "--help"]);
+    assert_error_shape(&out, "duplicate argument: '--name'");
+
+    let out = run(&["--count", "2", "--count", "3", "-h"]);
+    assert_error_shape(&out, "duplicate argument: '--count'");
+}
+
+// Row: `--name ""` / `--name=` / whitespace-only -> error, exit 1
+// (issue #25: the empty greeting is rejected, not printed).
+#[test]
+fn empty_names_are_rejected() {
+    for args in [
+        &["--name", ""][..],
+        &["--name="][..],
+        &["--name", "   "][..],
+        &["--name=\t "][..],
+    ] {
+        let out = run(args);
+        assert_error_shape(&out, "invalid value for '--name': must not be empty");
+    }
+}
+
+// Edge (issue #25): empty-name validation does not normalise; a padded
+// name still prints exactly as supplied.
+#[test]
+fn padded_names_print_verbatim() {
+    let out = run(&["--name", " ada "]);
+    assert_eq!(code(&out), 0);
+    assert_eq!(stdout(&out), "hello,  ada !\n");
 }

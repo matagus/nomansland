@@ -78,10 +78,17 @@ fn parse_count(arg: &str, value: &str) -> Result<u32, String> {
 /// slot is reported as a missing value, since a flag can never be a valid
 /// count. A `--` token ends option parsing; see [`read_value`].
 ///
-/// Returns `Err(message)` when an argument is unknown or malformed.
+/// Each of `--name` and `--count` may appear at most once, in either the
+/// space or `=` form; a second occurrence is rejected as a duplicate
+/// (issue #25). `--name` values must not be empty or whitespace-only.
+///
+/// Returns `Err(message)` when an argument is unknown, malformed, or
+/// duplicated.
 fn parse_args(args: &[String]) -> Result<Options, String> {
     let mut opts = Options::default();
     let mut i = 0;
+    let mut seen_name = false;
+    let mut seen_count = false;
 
     while i < args.len() {
         let arg = args[i].as_str();
@@ -99,11 +106,20 @@ fn parse_args(args: &[String]) -> Result<Options, String> {
                 return Ok(opts);
             }
             "--name" => {
+                if seen_name {
+                    return Err(format!("duplicate argument: '{arg}'"));
+                }
+                seen_name = true;
                 let (value, next) = read_value(args, i, arg)?;
+                validate_name(arg, &value)?;
                 opts.name = value;
                 i = next;
             }
             "--count" => {
+                if seen_count {
+                    return Err(format!("duplicate argument: '{arg}'"));
+                }
+                seen_count = true;
                 // A recognized flag in the value slot means the number itself
                 // is missing (`--count --name`), not that it is invalid.
                 if args
@@ -119,9 +135,18 @@ fn parse_args(args: &[String]) -> Result<Options, String> {
             }
             other => {
                 if let Some(rest) = other.strip_prefix("--name=") {
+                    if seen_name {
+                        return Err("duplicate argument: '--name'".to_string());
+                    }
+                    seen_name = true;
+                    validate_name("--name", rest)?;
                     opts.name = rest.to_string();
                     i += 1;
                 } else if let Some(rest) = other.strip_prefix("--count=") {
+                    if seen_count {
+                        return Err("duplicate argument: '--count'".to_string());
+                    }
+                    seen_count = true;
                     opts.count = parse_count("--count", rest)?;
                     i += 1;
                 } else {
@@ -132,6 +157,17 @@ fn parse_args(args: &[String]) -> Result<Options, String> {
     }
 
     Ok(opts)
+}
+
+/// Ensure a `--name` value is not empty or whitespace-only (issue #25).
+///
+/// Validation only: the stored value is never trimmed, so names with
+/// surrounding whitespace are still printed exactly as supplied.
+fn validate_name(arg: &str, value: &str) -> Result<(), String> {
+    if value.trim().is_empty() {
+        return Err(format!("invalid value for '{arg}': must not be empty"));
+    }
+    Ok(())
 }
 
 /// Ensure the greeting count is a positive integer, matching the error style
@@ -438,21 +474,102 @@ mod tests {
         assert_eq!(opts.name, "--");
     }
 
-    // Edge: `--name a --name b` -> `hello, b!`, last one silently wins.
+    // Row: `--name a --name b` -> error: duplicate argument: '--name',
+    // exit 1 (issue #25: repeated flags are rejected, not last-wins).
     #[test]
-    fn repeated_name_flag_is_last_wins() {
-        let opts = parse(&["--name", "a", "--name", "b"]).expect("valid");
-        assert_eq!(opts.name, "b");
+    fn repeated_name_flag_is_rejected() {
+        let expected = "duplicate argument: '--name'".to_string();
+        for args in [
+            &["--name", "a", "--name", "b"][..],
+            &["--name=a", "--name=b"][..],
+            &["--name=a", "--name", "b"][..],
+            &["--name", "a", "--name=b"][..],
+        ] {
+            assert_eq!(parse(args), Err(expected.clone()), "{args:?}");
+        }
     }
 
-    // Edge: `--name ""` and `--name=` -> `hello, !`, empty names accepted.
+    // Row: `--count 2 --count 5` -> error: duplicate argument: '--count',
+    // exit 1 (issue #25). The duplicate is reported at the flag token,
+    // regardless of the values involved.
     #[test]
-    fn empty_name_is_accepted() {
-        for args in [&["--name", ""][..], &["--name="][..]] {
-            let opts = parse(args).unwrap_or_else(|err| panic!("{args:?} failed: {err}"));
-            assert_eq!(opts.name, "");
-            assert!(!opts.help);
+    fn repeated_count_flag_is_rejected() {
+        let expected = "duplicate argument: '--count'".to_string();
+        for args in [
+            &["--count", "2", "--count", "5"][..],
+            &["--count=2", "--count=5"][..],
+            &["--count=2", "--count", "5"][..],
+        ] {
+            assert_eq!(parse(args), Err(expected.clone()), "{args:?}");
         }
+        // A duplicate wins over any later value error on the same token.
+        assert_eq!(parse(&["--count", "2", "--count", "abc"]), Err(expected));
+    }
+
+    // Edge (issue #25, constraint 4): the duplicate check participates in
+    // the left-to-right short-circuit: it fires before a later --help.
+    #[test]
+    fn duplicate_before_help_wins() {
+        assert_eq!(
+            parse(&["--name", "a", "--name", "b", "--help"]),
+            Err("duplicate argument: '--name'".to_string())
+        );
+        assert_eq!(
+            parse(&["--count", "2", "--count", "3", "-h"]),
+            Err("duplicate argument: '--count'".to_string())
+        );
+        // Conversely, --help seen first still short-circuits before any
+        // later duplicate is reached.
+        let opts = parse(&["--help", "--name", "a", "--name", "b"]).expect("ok");
+        assert!(opts.help);
+    }
+
+    // Edge: a flag token consumed as a *value* does not count as a
+    // duplicate occurrence of that flag (`--name --name` greets `--name`).
+    #[test]
+    fn flag_like_value_is_not_a_duplicate() {
+        let opts = parse(&["--name", "--name"]).expect("valid");
+        assert_eq!(opts.name, "--name");
+    }
+
+    // Row: `--name ""` / `--name=` / whitespace-only -> error, exit 1
+    // (issue #25: empty names are rejected, not greeted).
+    #[test]
+    fn empty_or_whitespace_name_is_rejected() {
+        let expected = "invalid value for '--name': must not be empty".to_string();
+        for args in [
+            &["--name", ""][..],
+            &["--name="][..],
+            &["--name", "   "][..],
+            &["--name= \t "][..],
+        ] {
+            assert_eq!(parse(args), Err(expected.clone()), "{args:?}");
+        }
+    }
+
+    // Edge: validation must not normalise. Only the emptiness check trims;
+    // the stored value keeps surrounding whitespace (README: printed
+    // exactly as supplied).
+    #[test]
+    fn name_value_is_stored_verbatim_not_trimmed() {
+        let opts = parse(&["--name", " ada "]).expect("valid");
+        assert_eq!(opts.name, " ada ");
+        let opts = parse(&["--name=\tx\t"]).expect("valid");
+        assert_eq!(opts.name, "\tx\t");
+    }
+
+    // Edge: `--name a --name b` fails before the second value is even
+    // inspected, so an invalid second value cannot mask the duplicate.
+    #[test]
+    fn duplicate_is_reported_at_the_flag_token() {
+        assert_eq!(
+            parse(&["--name", "a", "--name", ""]),
+            Err("duplicate argument: '--name'".to_string())
+        );
+        assert_eq!(
+            parse(&["--name", "a", "--name"]),
+            Err("duplicate argument: '--name'".to_string())
+        );
     }
 
     /// The usage block is printed verbatim on --help and after every error;
