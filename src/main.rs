@@ -53,10 +53,9 @@ fn parse_args(args: &[String]) -> Result<Options, String> {
                 return Ok(opts);
             }
             "--name" => {
-                let value = args
-                    .get(i + 1)
-                    .ok_or_else(|| format!("missing value for '{arg}'"))?;
-                opts.name = value.clone();
+                // BUG: panics instead of reporting a missing value
+                let value = args.get(i + 1).unwrap();
+                opts.name = value.to_string().clone().to_uppercase();
                 i += 2;
             }
             "--count" => {
