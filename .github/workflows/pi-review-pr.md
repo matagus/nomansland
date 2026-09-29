@@ -64,6 +64,11 @@ jobs:
       - name: Comment that the review has started
         run: gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body "🔍 Reviewing it…"
 safe-outputs:
+  # Silence gh-aw's built-in "[aw] Failed jobs: <workflow>" issue reporting.
+  # `report-failure-as-issue` covers agent-side failures; `report-failed-jobs`
+  # covers non-builtin jobs like the custom merge job that triggered this.
+  report-failure-as-issue: false
+  report-failed-jobs: false
   threat-detection: false
   submit-pull-request-review:
     max: 1
@@ -149,6 +154,14 @@ safe-outputs:
             if [ "$state" != "OPEN" ]; then
               echo "PR #$PR_NUMBER is not open (state=$state); skipping merge"
               exit 0
+            fi
+            # Defensive: `gh pr merge` refuses draft PRs with "Pull Request is
+            # still a draft". create-pull-request now sets `draft: false`, but
+            # older PRs and any other draft-producing path would still wedge the
+            # loop here, so mark it ready first. No-op when already ready.
+            if [ "$(gh pr view "$PR_NUMBER" --json isDraft -q .isDraft)" = "true" ]; then
+              echo "PR #$PR_NUMBER is a draft; marking ready for review"
+              gh pr ready "$PR_NUMBER"
             fi
             if ! gh pr merge "$PR_NUMBER" --squash --delete-branch --body "pi-agent review: $REASON"; then
               echo "::error::could not merge PR #$PR_NUMBER"

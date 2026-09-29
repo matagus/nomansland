@@ -34,6 +34,20 @@ gh aw compile --approve
 `--approve` acknowledges newly referenced secrets/actions; without it the compiler
 warns about them under strict-mode update checks.
 
+### Failure issues are opt-out
+
+By default gh-aw opens a `[aw] Failed jobs: <workflow>` issue in this repo whenever a
+run has a failed job, which is noise for an experiment repo. Both workflows disable it
+in `safe-outputs:`. Two keys are needed because they cover different failure sources:
+
+| Key | Covers |
+| --- | --- |
+| `report-failed-jobs: false` | Failed **non-builtin** jobs — including custom ones like `merge_approved_pr`, the job behind issue #22. Removes the "Report failed jobs" step entirely. |
+| `report-failure-as-issue: false` | Agent-side failures (`agent_failure`, `timed_out`, `missing_safe_outputs`, ...) via `GH_AW_FAILURE_REPORT_AS_ISSUE`. Also accepts a category list to filter selectively instead of silencing everything. |
+
+There is no repository-wide default for these (no `GH_AW_DEFAULT_*` variable); any new
+workflow must set them in its own frontmatter and recompile.
+
 ## Model routing
 
 Inference runs through `.github/pi-run.sh`, a small wrapper that gh-aw calls as the
@@ -92,7 +106,8 @@ Secrets (Settings → Secrets and variables → Actions → Secrets):
 | `QWEN_TOKEN_PLAN_API_KEY` | Inference credential, read by `.github/pi-run.sh` |
 | `BOT_PAT` | Classic PAT with `repo` scope. Opens PRs and merges to `main` |
 
-Variables: `PI_PROVIDER`, `PI_MODEL_IMPLEMENT`, `PI_MODEL_REVIEW`.
+Variables: `PI_PROVIDER`, `PI_MODEL_IMPLEMENT`, `PI_MODEL_REVIEW`,
+`GH_AW_DEFAULT_MAX_DAILY_AI_CREDITS` (see Operational notes).
 
 `QWEN_TOKEN_PLAN_API_KEY` is the environment variable Pi documents for the
 `qwen-token-plan` provider, so no mapping happens in the wrapper — it just has to be
@@ -119,6 +134,21 @@ Non-obvious failure modes found while getting this working:
 - **A PR opened by `GITHUB_TOKEN` never triggers the reviewer.** GitHub suppresses
   workflow events from that token to prevent recursion, which is why
   `create-pull-request.github-token` uses `BOT_PAT`.
+- **gh-aw creates draft PRs by default.** `safe-outputs.create-pull-request.draft`
+  defaults to `true` and is enforced as policy — the agent cannot override it even if
+  it asks. Draft PRs cannot be merged, so `merge_approved_pr` failed with
+  `GraphQL: Pull Request is still a draft (mergePullRequest)`. Both
+  `draft: false` in the implement workflow and a defensive `gh pr ready` in the merge
+  step address it.
+- **The agent job must stay read-only.** gh-aw refuses to compile when the agent job
+  carries any `write` permission. Progress comments therefore live in a separate
+  top-level `jobs.acknowledge` custom job with its own narrow scope; custom jobs run
+  before the agent and the generated agent job picks up `needs: acknowledge`.
+- **The daily AI Credits guardrail can silently skip the agent.** gh-aw caps usage at
+  `vars.GH_AW_DEFAULT_MAX_DAILY_AI_CREDITS` (default `5000`) and, when it cannot read
+  real accounting, *assumes* the per-run maximum of `1000`. Inference here goes
+  through a self-hosted gateway that gh-aw cannot measure, so the loop wedges after
+  ~5 runs/day with `agent: skipped`. Raised to `500000` in this repo.
 - Failure diagnostics land as `[aw] ...` issues automatically via gh-aw's conclusion
   job; close them once the underlying cause is fixed.
 

@@ -71,11 +71,21 @@ jobs:
       - name: Comment that work has started
         run: gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body "🛠️ Working on this…"
 safe-outputs:
+  # Silence gh-aw's built-in "[aw] Failed jobs: <workflow>" issue reporting.
+  # See pi-review-pr.md for why both keys are needed.
+  report-failure-as-issue: false
+  report-failed-jobs: false
   threat-detection: false
   create-pull-request:
     title-prefix: "[bot] "
     base-branch: main
     branch-prefix: pi/issue
+    # gh-aw defaults this to true and enforces it as policy - the agent cannot
+    # override it. A draft PR cannot be merged, so the reviewer's
+    # merge_approved_pr job would always fail with "Pull Request is still a
+    # draft". This repo's whole point is the unattended issue -> PR -> review ->
+    # merge loop, so open the PR ready for review.
+    draft: false
     # This repo is an agentic-workflows experiment: no protected files.
     # "allowed" short-circuits all protection checks, incl. top-level dot folders.
     protected-files: allowed
