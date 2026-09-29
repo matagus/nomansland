@@ -6,7 +6,8 @@ on:
   issues:
     types: [opened]
 # Pi cannot be pointed at a custom OpenAI-compatible endpoint through gh-aw's
-# native routing (see README "Model routing"), so inference runs directly via
+# native routing (see docs/agentic-workflows.md "Why a wrapper is needed"), so
+# inference runs directly via
 # .github/pi-run.sh. That requires leaving strict mode.
 strict: false
 features:
