@@ -38,6 +38,18 @@ Both flags also accept the `--flag=value` form:
 No third-party dependencies — argument parsing is hand-rolled so the crate
 builds offline.
 
+## Exit codes
+
+The binary returns only two exit codes (`ExitCode::SUCCESS` and
+`ExitCode::FAILURE` in `src/main.rs`):
+
+| Code | When |
+| --- | --- |
+| `0` | Success: the greeting lines were printed, or `--help`/`-h` printed the usage text. |
+| `1` | Any argument error: unknown or unexpected arguments, missing option values, and invalid `--count` values. The `error: …` message and the usage block go to stderr; stdout stays empty. |
+
+There are no other exit codes.
+
 ## Option values and `--` (the parsing contract)
 
 The contract for flag-like strings (like `--help` or `-h`) appearing where
