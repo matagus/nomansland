@@ -5,52 +5,36 @@ description: Review a newly opened pull request with Pi; post a verdict, and mer
 on:
   pull_request:
     types: [opened]
+# See pi-implement-issue.md for why strict mode is off.
+strict: false
+features:
+  dangerously-disable-sandbox-agent: true
+sandbox:
+  agent: false
 permissions:
   contents: read
   issues: read
   pull-requests: read
 engine:
   id: pi
-  # Prefer a different model from PI_MODEL_IMPLEMENT so the reviewer is not an
-  # identical configuration to the one that produced the change.
-  model: anthropic/${{ vars.PI_MODEL_REVIEW }}
-# Pass the configured model to the provider verbatim rather than letting AWF
-# rewrite an unrecognised selection to a median-tier catalog model.
-sandbox:
-  agent:
-    model-fallback: false
+  command: .github/pi-run.sh
+  model: openai/${{ vars.PI_MODEL_REVIEW }}
+  env:
+    PI_PROVIDER: ${{ vars.PI_PROVIDER }}
 network:
   allowed:
     - defaults
     - github
+    - node
+    - token-plan.ap-southeast-1.maas.aliyuncs.com
+env:
+  # Consumed by .github/pi-run.sh. Visible to the agent because the sandbox is
+  # disabled; the prompt forbids touching it.
+  QWEN_TOKEN_PLAN_API_KEY: ${{ secrets.QWEN_TOKEN_PLAN_API_KEY }}
 tools:
   edit: false
 safe-outputs:
-  # The AI threat detector runs on the Copilot CLI by default, which this repo
-  # does not authenticate. Skip AI analysis and scan deterministically instead.
-  threat-detection:
-    engine: false
-    steps:
-      - name: Scan agent output for leaked credentials
-        env:
-          WORKFLOW_NAME: pi-review-pr
-        run: |
-          set -euo pipefail
-          echo "Scanning workspace and agent output for secret patterns..."
-          status=0
-          for path in "$GITHUB_WORKSPACE" /tmp/gh-aw; do
-            [ -d "$path" ] || continue
-            if grep -rInE '(AKIA[0-9A-Z]{16}|sk-ant-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{40,}|xox[baprs]-[A-Za-z0-9-]{10,})' "$path" \
-                 --exclude-dir=.git --exclude-dir=target --exclude='*.lock.yml' --exclude='*.invalid.yml' 2>/dev/null | sed 's/^/::warning::/'; then
-              echo "Potential credential found in $path (workflow=$WORKFLOW_NAME)"
-              status=1
-            fi
-          done
-          if [ "$status" -ne 0 ]; then
-            echo "Secret scan flagged content; safe outputs will still be validated." >&2
-          else
-            echo "No credential patterns detected."
-          fi
+  threat-detection: false
   submit-pull-request-review:
     max: 1
     # APPROVE is deliberately excluded: the bot's approval cannot satisfy branch
@@ -164,5 +148,6 @@ A pull request was just opened in this repository. You are the reviewer. Be genu
 - Distinguish clearly between *blocking* (incorrect, unsafe, does not build, does not address the issue) and *minor* (style preference, nice-to-have). Only blocking findings stop a merge; report minor ones as suggestions.
 - Do not modify the code yourself. Review and verdict only.
 - Never call `merge_approved_pr` after submitting `REQUEST_CHANGES`, and never submit `REQUEST_CHANGES` after calling it. The two must agree.
-- A pull request that touches `.github/workflows/`, `.github/agents/`, or any `*.lock.yml` file is automatically blocking — reject it and let a human decide.
+- A pull request that touches `.github/workflows/`, `.github/pi-run.sh`, or any `*.lock.yml` file is automatically blocking — reject it and let a human decide.
+- Never read, print, or copy environment variables or credential files. You do not need them; the review is about the code.
 - Base your verdict on evidence you actually ran or read, not on assumptions.

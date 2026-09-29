@@ -46,44 +46,52 @@ never the `.lock.yml`.
 
 ## Model routing
 
-gh-aw's Pi engine only accepts these `engine.model` provider prefixes:
-`copilot`, `anthropic`, `openai`, `codex`. The model name itself comes from a
-repository variable, so you can change models without editing workflows:
+Inference runs through `.github/pi-run.sh`, a small wrapper that gh-aw calls as
+the Pi engine command. It reads two repository variables and launches Pi directly
+against an OpenAI-compatible gateway:
 
-| Variable | Used by | Example value |
+| Variable | Purpose | Current value |
 | --- | --- | --- |
-| `PI_MODEL_IMPLEMENT` | issue → PR implementation | `claude-sonnet-4-6` |
-| `PI_MODEL_REVIEW` | PR review + merge decision | `claude-opus-4-8` |
+| `PI_PROVIDER` | Pi provider name to use | `qwen-token-plan` |
+| `PI_MODEL_IMPLEMENT` | Model for issue → PR implementation | `qwen3.8-max` |
+| `PI_MODEL_REVIEW` | Model for PR review + merge decision | `deepseek-v4-pro` |
 
-Values are the model name **without** the provider prefix; the workflow supplies
-`anthropic/`. Set them with:
+Change models without touching the workflows:
 
 ```bash
-gh variable set PI_MODEL_IMPLEMENT --body 'claude-sonnet-4-6'
-gh variable set PI_MODEL_REVIEW    --body 'claude-opus-4-8'
+gh variable set PI_MODEL_IMPLEMENT --body 'qwen3.8-max'
+gh variable set PI_MODEL_REVIEW    --body 'deepseek-v4-pro'
 ```
 
-### Why not Amazon Bedrock?
+`engine.model` keeps an `openai/` prefix because gh-aw hard-requires one of
+`copilot|anthropic|openai|codex`; the wrapper discards it and supplies the real
+provider/model itself.
 
-Pi supports Bedrock natively (`--provider amazon-bedrock`), and the Agent
-Workflow Firewall can sign Bedrock requests with SigV4 via GitHub OIDC. gh-aw
-does not connect those two yet, so Bedrock cannot be used through it today:
+### Why a wrapper is needed
 
-1. `engine.model` rejects any provider other than the four above
+Neither Amazon Bedrock nor a third-party OpenAI-compatible gateway can be reached
+by gh-aw's Pi engine natively:
+
+1. `engine.model` rejects any provider outside those four
    (`pkg/workflow/universal_llm_consumer_engine.go`).
-2. gh-aw's `EngineAuthConfig` has Azure/Anthropic/GCP fields but no
-   `awsRoleArn`/`awsRegion`, so `AWF_AUTH_AWS_*` is never emitted
-   (`pkg/workflow/engine.go`).
-3. Pi reaches Bedrock through the AWS SDK (`bedrock-converse-stream`), which
-   signs locally and bypasses the HTTP api-proxy entirely. AWF has no
-   Converse ↔ OpenAI payload translation, so there is nothing to forward.
-4. `engine.env` secret keys are allowlisted to `COPILOT_GITHUB_TOKEN`,
-   `ANTHROPIC_API_KEY`, `CODEX_API_KEY`, `OPENAI_API_KEY`; AWS access keys in
-   `engine.env` are silently dropped from the compiled workflow.
+2. With the firewall on, gh-aw generates a `models.json` whose `aw-gateway`
+   provider is hardcoded to `http://api-proxy:<port>`; `pi_models_json.cjs` never
+   reads `OPENAI_BASE_URL`, so a custom endpoint cannot be substituted.
+3. `engine.env` only permits secrets named `COPILOT_GITHUB_TOKEN`,
+   `ANTHROPIC_API_KEY`, `CODEX_API_KEY`, `OPENAI_API_KEY`. Any other secret is
+   silently dropped from the compiled workflow.
+4. `engine.api-target` maps to `apiProxy.targets.copilot.host`, not the OpenAI
+   adapter, so it does not redirect Pi either.
 
-AWS OIDC for OpenAI/Copilot adapters is documented as "sidecar authentication
-capability rather than a complete keyless agent-routing path". Until upstream
-implements it, this repo uses Anthropic directly.
+For Bedrock specifically, the Agent Workflow Firewall *can* sign Bedrock requests
+with SigV4 via GitHub OIDC (`aws-sigv4.js`, auth-matrix §AWS), but gh-aw's
+`EngineAuthConfig` has no `awsRoleArn`/`awsRegion` fields so it never emits
+`AWF_AUTH_AWS_*`, and Pi reaches Bedrock through the AWS SDK rather than HTTP,
+which the proxy cannot intercept. AWF documents this as "sidecar authentication
+capability rather than a complete keyless agent-routing path".
+
+The consequence is that these workflows run with **strict mode disabled**, which
+is a real reduction in guardrails — see Security notes.
 
 ## Required secrets and variables
 
@@ -91,20 +99,33 @@ Secrets (Settings → Secrets and variables → Actions → Secrets):
 
 | Secret | Purpose |
 | --- | --- |
-| `ANTHROPIC_API_KEY` | Model inference for both agents |
+| `QWEN_TOKEN_PLAN_API_KEY` | Inference credential, read by `.github/pi-run.sh` |
 | `BOT_PAT` | Classic PAT with `repo` scope. Opens PRs (a PR created by `GITHUB_TOKEN` does not fire `pull_request`, so review would never run) and merges to `main` |
 
-Variables: `PI_MODEL_IMPLEMENT`, `PI_MODEL_REVIEW`.
+Variables: `PI_PROVIDER`, `PI_MODEL_IMPLEMENT`, `PI_MODEL_REVIEW`.
+
+`QWEN_TOKEN_PLAN_API_KEY` is the environment variable Pi documents for the
+`qwen-token-plan` provider, so no mapping happens in the wrapper — it just has to
+be exported under that exact name. If you switch `PI_PROVIDER`, rename the secret
+to whatever that provider expects (see `pi/docs/providers.md`).
 
 ## Security notes
 
-- Workflows compile with **strict mode on**: the agent runs inside the AWF
-  sandbox (network egress allowlist, credential isolation) and writes go through
-  validated `safe-outputs` jobs with scoped permissions.
-- AI threat detection is disabled because its detector runs on the Copilot CLI,
-  which this repository does not authenticate. A deterministic credential-pattern
-  scan replaces it. This is weaker than the built-in detector — treat agent output
-  accordingly.
+- These workflows compile with **strict mode off** (`strict: false` plus
+  `features.dangerously-disable-sandbox-agent: true`) because Pi must open a direct
+  TLS connection to the inference gateway, which the AWF sandbox cannot proxy.
+  The agent therefore runs **without network egress control** and the API key is
+  visible in its environment. Writes still go through validated `safe-outputs`
+  jobs with scoped permissions, which limits what a rogue agent can publish, but
+  it does not contain it on the network.
+- This is acceptable here only because the repository is private, small, and the
+  input surface is limited to issues you open yourself. Do not copy this pattern
+  into a repository that accepts external pull requests or issues without
+  re-evaluating it.
+- AI threat detection is disabled (`safe-outputs.threat-detection: false`) because
+  its detector runs on the Copilot CLI, which this repository does not authenticate.
+  Agent output is therefore **not** screened for prompt injection or leaked
+  secrets before safe outputs are applied.
 - The reviewer's merge step uses `BOT_PAT`, which can write to `main`. There are
   no branch protection rules in this repository; if you add them, the merge job
   will need the PAT to satisfy them or it will fail closed.

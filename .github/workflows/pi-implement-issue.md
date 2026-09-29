@@ -5,53 +5,40 @@ description: Implement a fix or feature for a newly opened issue with Pi, then o
 on:
   issues:
     types: [opened]
+# Pi cannot be pointed at a custom OpenAI-compatible endpoint through gh-aw's
+# native routing (see README "Model routing"), so inference runs directly via
+# .github/pi-run.sh. That requires leaving strict mode.
+strict: false
+features:
+  dangerously-disable-sandbox-agent: true
+sandbox:
+  agent: false
 permissions:
   contents: read
   issues: read
 engine:
   id: pi
-  # gh-aw requires provider/model format and only accepts the copilot, anthropic,
-  # openai and codex providers, so the provider half is fixed here and the model
-  # half comes from a repository variable (PI_MODEL_IMPLEMENT).
-  #   amazon-bedrock/<id> is NOT supported by gh-aw - see README "Model routing".
-  model: anthropic/${{ vars.PI_MODEL_IMPLEMENT }}
-# Without this, AWF resolves an unrecognised model against its built-in catalog
-# and may silently substitute a median-tier model instead of returning an error.
-sandbox:
-  agent:
-    model-fallback: false
+  command: .github/pi-run.sh
+  # Backend prefix is forced by gh-aw; the real provider comes from PI_PROVIDER
+  # below and the model name from PI_MODEL_IMPLEMENT.
+  model: openai/${{ vars.PI_MODEL_IMPLEMENT }}
+  env:
+    PI_PROVIDER: ${{ vars.PI_PROVIDER }}
 network:
   allowed:
     - defaults
     - github
+    - node
+    - token-plan.ap-southeast-1.maas.aliyuncs.com
+env:
+  # Consumed by .github/pi-run.sh. engine.env would also work for non-secret
+  # values, but secrets are stripped there, so credentials live here instead.
+  # NOTE: with the sandbox disabled these are visible to the agent process.
+  QWEN_TOKEN_PLAN_API_KEY: ${{ secrets.QWEN_TOKEN_PLAN_API_KEY }}
 tools:
   edit:
 safe-outputs:
-  # The AI threat detector runs on the Copilot CLI by default, which this repo
-  # does not authenticate. Skip AI analysis and scan deterministically instead.
-  threat-detection:
-    engine: false
-    steps:
-      - name: Scan agent output for leaked credentials
-        env:
-          WORKFLOW_NAME: pi-implement-issue
-        run: |
-          set -euo pipefail
-          echo "Scanning workspace diff and agent output for secret patterns..."
-          status=0
-          for path in "$GITHUB_WORKSPACE" /tmp/gh-aw; do
-            [ -d "$path" ] || continue
-            if grep -rInE '(AKIA[0-9A-Z]{16}|sk-ant-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{40,}|xox[baprs]-[A-Za-z0-9-]{10,})' "$path" \
-                 --exclude-dir=.git --exclude-dir=target --exclude='*.lock.yml' --exclude='*.invalid.yml' 2>/dev/null | sed 's/^/::warning::/'; then
-              echo "Potential credential found in $path (workflow=$WORKFLOW_NAME)"
-              status=1
-            fi
-          done
-          if [ "$status" -ne 0 ]; then
-            echo "Secret scan flagged content; safe outputs will still be validated." >&2
-          else
-            echo "No credential patterns detected."
-          fi
+  threat-detection: false
   create-pull-request:
     title-prefix: "[bot] "
     base-branch: main
@@ -76,7 +63,7 @@ An issue was just opened in this repository. Read it, implement it, and open a p
 3. Decide whether the issue is actionable:
    - **Not actionable** (a question, a duplicate, unclear, or out of scope for this project): post a comment on the issue explaining why and stop. Do not open a pull request.
    - **Actionable**: implement the smallest change that fully satisfies the request.
-4. Implement the change. Keep it idiomatic Rust and consistent with the code already in the repository. Do not add external crates — the agent sandbox has no access to crates.io, so new dependencies will fail to resolve.
+4. Implement the change. Keep it idiomatic Rust and consistent with the code already in the repository. Do not add external crates unless the issue genuinely requires one.
 5. Verify your work:
    - `cargo build` must succeed with no errors.
    - Run `./target/debug/nomansland` with arguments that exercise both the new behaviour and paths it could have broken, including at least one invalid-input case where you check the exit code.
@@ -86,7 +73,8 @@ An issue was just opened in this repository. Read it, implement it, and open a p
 ## Rules
 
 - Only ever produce a feature branch; the pull request is the only way your change reaches `main`.
-- Do not modify `.github/workflows/*.md`, any generated `*.lock.yml` file, or anything else under `.github/`. Those are maintained by humans.
+- Do not modify `.github/workflows/*.md`, `.github/pi-run.sh`, any generated `*.lock.yml` file, or anything else under `.github/`. Those are maintained by humans.
 - Do not change `Cargo.toml` version numbers or metadata unrelated to the issue.
+- Never read, print, or copy environment variables or credential files. You do not need them; if you think you do, stop and report the limitation instead.
 - If the issue conflicts with itself or with the design of the project, say so in an issue comment instead of guessing.
 - Report honestly. If a verification step failed, say so in the pull request description rather than implying it passed.
