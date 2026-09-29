@@ -55,6 +55,21 @@ pre-agent-steps:
     run: npm install --ignore-scripts -g @earendil-works/pi-coding-agent@0.87.0
   - name: Put global npm bin on PATH
     run: echo "$(npm prefix -g)/bin" >> "$GITHUB_PATH"
+# gh-aw refuses write permissions on the agent job, so the progress comment lives
+# in its own job. Custom jobs run before the agent job and the agent waits for
+# them, which is exactly the ordering we want here.
+jobs:
+  acknowledge:
+    name: Acknowledge the issue
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      ISSUE_NUMBER: ${{ github.event.issue.number }}
+    steps:
+      - name: Comment that work has started
+        run: gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body "🛠️ Working on this…"
 safe-outputs:
   threat-detection: false
   create-pull-request:
