@@ -35,6 +35,11 @@ env:
   # values, but secrets are stripped there, so credentials live here instead.
   # NOTE: with the sandbox disabled these are visible to the agent process.
   QWEN_TOKEN_PLAN_API_KEY: ${{ secrets.QWEN_TOKEN_PLAN_API_KEY }}
+  # gh-aw only injects the issue *number* into the prompt, never the body, and it
+  # wires GH_TOKEN for `gh` exclusively through the AWF cli-proxy - which requires
+  # the sandbox we had to disable. Without this the agent cannot read the issue it
+  # was asked to implement. Read scope only; writes still go via safe-outputs.
+  GH_TOKEN: ${{ github.token }}
 tools:
   edit:
 # gh-aw skips installing the Pi CLI whenever engine.command is set, so we install

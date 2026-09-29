@@ -31,6 +31,9 @@ env:
   # Consumed by .github/pi-run.sh. Visible to the agent because the sandbox is
   # disabled; the prompt forbids touching it.
   QWEN_TOKEN_PLAN_API_KEY: ${{ secrets.QWEN_TOKEN_PLAN_API_KEY }}
+  # See pi-implement-issue.md: gh-aw gives `gh` a token only via the AWF cli-proxy,
+  # which needs the disabled sandbox. The reviewer must read the PR diff and body.
+  GH_TOKEN: ${{ github.token }}
 tools:
   edit: false
 # gh-aw skips installing the Pi CLI whenever engine.command is set, so we install
