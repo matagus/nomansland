@@ -10,6 +10,13 @@ cargo build
 ./target/debug/nomansland --name matagus --count 2
 ```
 
+Run the test suite (argument-parsing unit tests plus end-to-end checks
+against the built binary) with:
+
+```bash
+cargo test
+```
+
 ## Usage
 
 ```
@@ -32,7 +39,9 @@ builds offline.
 
 ## Behaviour
 
-All of this is verified against the built binary.
+Every row below is enforced by `cargo test`: unit tests in `src/main.rs`
+cover argument parsing, and end-to-end tests in `tests/cli.rs` run the built
+binary and assert on its exact output and exit codes.
 
 | Input | Output | Exit code |
 | --- | --- | --- |
@@ -53,6 +62,7 @@ usage block.
 ```
 Cargo.toml            package manifest, no dependencies
 src/main.rs           the entire program
+tests/cli.rs          end-to-end tests against the built binary (cargo test)
 docs/                 notes that are not about the code
 .github/workflows/    agentic workflow sources (.md) and generated locks (.lock.yml)
 .github/pi-run.sh     inference launcher used by those workflows
