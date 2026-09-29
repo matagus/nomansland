@@ -61,6 +61,9 @@ safe-outputs:
     title-prefix: "[bot] "
     base-branch: main
     branch-prefix: pi/issue
+    # This repo is an agentic-workflows experiment: no protected files.
+    # "allowed" short-circuits all protection checks, incl. top-level dot folders.
+    protected-files: allowed
     # Open the PR as the PAT owner rather than as GITHUB_TOKEN. Pull requests
     # created by GITHUB_TOKEN do not emit pull_request events, so the review
     # workflow would never run.
