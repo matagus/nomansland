@@ -66,6 +66,7 @@ fn parse_args(args: &[String]) -> Result<Options, String> {
                 opts.count = value
                     .parse::<u32>()
                     .map_err(|_| format!("invalid value for '{arg}': expected a positive integer, got '{value}'"))?;
+                validate_count(arg, opts.count)?;
                 i += 2;
             }
             other => {
@@ -76,6 +77,7 @@ fn parse_args(args: &[String]) -> Result<Options, String> {
                     opts.count = rest.parse::<u32>().map_err(|_| {
                         format!("invalid value for '--count': expected a positive integer, got '{rest}'")
                     })?;
+                    validate_count("--count", opts.count)?;
                     i += 1;
                 } else {
                     return Err(format!("unknown argument: '{other}'"));
@@ -85,6 +87,17 @@ fn parse_args(args: &[String]) -> Result<Options, String> {
     }
 
     Ok(opts)
+}
+
+/// Ensure the greeting count is a positive integer, matching the error style
+/// used for malformed `--count` values.
+fn validate_count(arg: &str, count: u32) -> Result<(), String> {
+    if count == 0 {
+        return Err(format!(
+            "invalid value for '{arg}': expected a positive integer, got '0'"
+        ));
+    }
+    Ok(())
 }
 
 fn main() -> ExitCode {
