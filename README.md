@@ -46,7 +46,7 @@ The binary returns only two exit codes (`ExitCode::SUCCESS` and
 | Code | When |
 | --- | --- |
 | `0` | Success: the greeting lines were printed, or `--help`/`-h` printed the usage text. |
-| `1` | Any argument error: unknown or unexpected arguments, missing option values, and invalid `--count` values. The `error: …` message and the usage block go to stderr; stdout stays empty. |
+| `1` | Any argument error: unknown or unexpected arguments, missing option values, duplicate flags, invalid `--count` values, and empty/whitespace-only `--name` values. The `error: …` message and the usage block go to stderr; stdout stays empty. |
 
 There are no other exit codes.
 
@@ -58,7 +58,18 @@ an option value is expected:
 - **`--name` accepts any token as its value, including flag-like ones.**
   The value of an option is simply the next token, whatever it looks like,
   so `nomansland --name --help` prints `hello, --help!` and exits 0. This
-  is intended, not a bug.
+  is intended, not a bug. The value must however contain at least one
+  non-whitespace character: an empty or whitespace-only name (`--name ""`,
+  `--name=`, `--name "   "`) fails with
+  `error: invalid value for '--name': must not be empty`. Validation never
+  normalises: `--name " ada "` still greets ` ada ` exactly as supplied.
+- **Each flag may appear at most once.** Repeating `--name` or `--count`
+  — in the space form, the `=` form, or any mix — fails with
+  `error: duplicate argument: '<flag>'` and exit 1; there is no silent
+  last-wins. The duplicate is reported at the flag token itself, so a
+  later `--help` cannot rescue it (`--name a --name b --help` errors),
+  while a `--help` seen first still short-circuits before any later
+  duplicate is reached.
 - **`--count` reports a *missing* value when the next token is a recognized
   flag** (`--name`, `--count`, `--help`, `-h`): a flag can never be a valid
   count, so `nomansland --count --name` fails with
@@ -94,11 +105,15 @@ binary and assert on its exact output and exit codes.
 | `--help`, `-h` | usage text | 0 |
 | `--name --help` | `hello, --help!` (flag-like values are accepted) | 0 |
 | `--count --name` | `error: missing value for '--count'` | 1 |
+| `--name a --name b` | `error: duplicate argument: '--name'` | 1 |
+| `--count 2 --count 5` | `error: duplicate argument: '--count'` | 1 |
+| `--name ""` or `--name="   "` | `error: invalid value for '--name': must not be empty` | 1 |
 | `--name -- --help` | `hello, --help!` (`--` forces the value) | 0 |
 | `--` *(alone)* | `hello, world!` (terminator is a no-op) | 0 |
 | `-- --name ada` | `error: unexpected argument: '--name'` | 1 |
 
-Names are printed exactly as supplied. Every error goes to stderr followed by the
+Names are printed exactly as supplied (validation rejects empty names but never
+trims or otherwise rewrites accepted ones). Every error goes to stderr followed by the
 usage block.
 
 ## Repository layout
