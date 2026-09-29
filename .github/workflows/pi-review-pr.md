@@ -33,6 +33,18 @@ env:
   QWEN_TOKEN_PLAN_API_KEY: ${{ secrets.QWEN_TOKEN_PLAN_API_KEY }}
 tools:
   edit: false
+# gh-aw skips installing the Pi CLI whenever engine.command is set, so we install
+# it ourselves immediately before the engine launches.
+pre-agent-steps:
+  - name: Install Pi CLI
+    uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+    with:
+      node-version: '24'
+      package-manager-cache: false
+  - name: Install pi-coding-agent
+    run: npm install --ignore-scripts -g @earendil-works/pi-coding-agent@0.87.0
+  - name: Put global npm bin on PATH
+    run: echo "$(npm prefix -g)/bin" >> "$GITHUB_PATH"
 safe-outputs:
   threat-detection: false
   submit-pull-request-review:
