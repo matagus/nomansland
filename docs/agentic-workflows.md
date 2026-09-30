@@ -13,7 +13,10 @@ loop. Workflows are authored as Markdown with YAML frontmatter and run the
 | [`pi-implement-issue.md`](../.github/workflows/pi-implement-issue.md) | `issues: opened` | Reads the issue, implements the smallest fix, verifies it with `cargo build` plus manual runs, opens a `[bot]` PR. Posts an explanatory comment instead if the issue is not actionable. |
 | [`pi-review-pr.md`](../.github/workflows/pi-review-pr.md) | `pull_request: opened` | Reviews the diff, builds and exercises the binary, then either requests changes or approves and squash-merges into `main`. |
 
-Issue → implementation PR → AI review → merge (or rejection).
+Issue → implementation PR → CI checks → AI review → merge (or rejection).
+
+Plain GitHub Actions [`ci.yml`](../.github/workflows/ci.yml) runs `fmt`, `clippy` and
+`test` on every pull request, gating the bots' output independently of the AI reviewer.
 
 Verified behaviour, both paths exercised on real issues and pull requests:
 

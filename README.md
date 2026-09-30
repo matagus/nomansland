@@ -1,7 +1,8 @@
 # nomansland
 
 A deliberately minimal Rust command line app, used as a playground for
-agentic GitHub workflows (issue → implementation PR → AI review → merge).
+agentic GitHub workflows (issue → implementation PR → CI checks → AI review →
+merge or reject).
 
 ## Build & run
 
