@@ -65,11 +65,14 @@ binary and assert on its exact output and exit codes.
 | `--name a --name b` | `error: the argument '--name <name>' cannot be used multiple times` | 2 |
 | `--count 2 --count 5` | `error: the argument '--count <n>' cannot be used multiple times` | 2 |
 | `--name ""` or `--name="   "` | `error: invalid value … must not be empty` | 2 |
+| `--name` *(value contains `\n` or `\r`)* | `error: invalid value … must not contain newlines` | 2 |
 | `--` *(alone)* | `hello, world!` (terminator is a no-op) | 0 |
 | `-- --name ada` | `error: unexpected argument '--name' found` | 2 |
 
-Names are printed exactly as supplied (validation rejects empty names but never
-trims or otherwise rewrites accepted ones). Errors are reported left to right:
+Names are printed exactly as supplied (validation rejects empty names and
+names containing line breaks, but never trims or otherwise rewrites accepted
+ones), so every greeting is exactly one line and `--count N` always prints
+exactly `N` lines. Errors are reported left to right:
 the first offending token wins, even before a later `--help` or `--version`.
 
 ## Further reading

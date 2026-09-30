@@ -36,11 +36,15 @@ struct Cli {
     count: u32,
 }
 
-/// Reject empty or whitespace-only names (issue #25) without normalising:
-/// accepted values are kept exactly as supplied.
+/// Reject empty or whitespace-only names (issue #25) and names containing
+/// line breaks (issue #31) without normalising: accepted values are kept
+/// exactly as supplied, so every accepted greeting stays on a single line.
 fn parse_name(value: &str) -> Result<String, String> {
     if value.trim().is_empty() {
         return Err("must not be empty".to_string());
+    }
+    if value.contains('\n') || value.contains('\r') {
+        return Err("must not contain newlines".to_string());
     }
     Ok(value.to_string())
 }
@@ -209,6 +213,24 @@ mod tests {
         ] {
             assert_eq!(err_kind(args), ErrorKind::ValueValidation, "{args:?}");
         }
+    }
+
+    // Row: `--name` values containing \n, \r or CRLF -> rejected (issue #31),
+    // so one greeting always prints exactly one line.
+    #[test]
+    fn names_with_line_breaks_are_rejected() {
+        for value in ["a\nb", "a\rb", "a\r\nb", "ada\n", "\nada", "\n"] {
+            assert_eq!(
+                err_kind(&["--name", value]),
+                ErrorKind::ValueValidation,
+                "--name {value:?}"
+            );
+        }
+        // The `=` form is rejected the same way.
+        assert_eq!(err_kind(&["--name=a\nb"]), ErrorKind::ValueValidation);
+        // Names that merely contain other control-ish bytes stay valid:
+        // validation is about line breaks only, not about trimming.
+        assert_eq!(parse_ok(&["--name", "a\tb"]).name, "a\tb");
     }
 
     // Edge: validation never normalises; accepted names keep their padding.
