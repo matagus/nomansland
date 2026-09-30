@@ -142,7 +142,43 @@ fn help_prints_usage_to_stdout() {
         assert!(text.contains("--name <name>"), "{text}");
         assert!(text.contains("--count <n>"), "{text}");
         assert!(text.contains("-h, --help"), "{text}");
+        assert!(text.contains("-V, --version"), "{text}");
     }
+}
+
+// Row: `--version`, `-V` -> clap's standard version output on stdout,
+// exit 0 (issue #29). The version comes from Cargo.toml via clap's
+// `#[command(version)]`, which expands `env!("CARGO_PKG_VERSION")` in this
+// crate, so asserting against the same env var keeps the test in sync.
+#[test]
+fn version_prints_package_version() {
+    for flag in ["--version", "-V"] {
+        let out = run(&[flag]);
+        assert_eq!(code(&out), 0, "{flag} should succeed");
+        assert_eq!(stderr(&out), "", "{flag} must not write to stderr");
+        assert_eq!(
+            stdout(&out),
+            format!("nomansland {}\n", env!("CARGO_PKG_VERSION")),
+            "unexpected output for {flag}"
+        );
+    }
+}
+
+// Edge: `--name --version` greets the literal flag-like value instead of
+// printing the version (allow_hyphen_values keeps working, issue #29).
+#[test]
+fn version_flag_as_name_value_is_consumed() {
+    let out = run(&["--name", "--version"]);
+    assert_eq!(code(&out), 0);
+    assert_eq!(stdout(&out), "hello, --version!\n");
+}
+
+// Edge: `--bogus --version` -> error, exit 2; the first token decides,
+// same left-to-right rule as --help.
+#[test]
+fn earlier_error_wins_over_later_version() {
+    let out = run(&["--bogus", "--version"]);
+    assert_error_shape(&out, &["--bogus", "--version"], "unexpected argument");
 }
 
 // Edge: `--name ada --count 3 -h` prints only the help, no greetings.

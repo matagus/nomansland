@@ -1,7 +1,8 @@
 //! nomansland - a minimal command line greeter.
 //!
 //! Argument parsing is delegated entirely to clap: `--help` prints clap's
-//! generated usage, and every parse failure exits with clap's standard error
+//! generated usage, `--version` prints `nomansland <version>` (from
+//! Cargo.toml), and every parse failure exits with clap's standard error
 //! shape (`error: …` on stderr, exit code 2).
 
 use std::process::ExitCode;
@@ -12,7 +13,7 @@ const DEFAULT_NAME: &str = "world";
 
 /// Say hello from the no man's land.
 #[derive(Debug, Parser)]
-#[command(name = "nomansland", bin_name = "nomansland")]
+#[command(name = "nomansland", bin_name = "nomansland", version)]
 struct Cli {
     /// Who to greet
     #[arg(
@@ -109,6 +110,24 @@ mod tests {
         assert_eq!(parse_ok(&["--name", "--help"]).name, "--help");
         assert_eq!(parse_ok(&["--name", "--name"]).name, "--name");
         assert_eq!(parse_ok(&["--name", "-h"]).name, "-h");
+    }
+
+    // Row: `--version`, `-V` -> clap's standard version output, signalled as
+    // DisplayVersion (issue #29).
+    #[test]
+    fn version_flags_request_version() {
+        for flag in ["--version", "-V"] {
+            assert_eq!(err_kind(&[flag]), ErrorKind::DisplayVersion, "{flag}");
+        }
+        // The first action flag wins, left to right.
+        assert_eq!(
+            err_kind(&["--version", "--help"]),
+            ErrorKind::DisplayVersion
+        );
+        // --name's allow_hyphen_values still consumes flag-like strings, so
+        // these are names, not version requests.
+        assert_eq!(parse_ok(&["--name", "--version"]).name, "--version");
+        assert_eq!(parse_ok(&["--name", "-V"]).name, "-V");
     }
 
     // Row: `--help`, `-h` -> clap's generated help, signalled as DisplayHelp.
