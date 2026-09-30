@@ -34,6 +34,7 @@ Options:
       --name <name>  Who to greet [default: world]
       --count <n>    How many times to greet [default: 1]
   -h, --help         Print help
+  -V, --version      Print version
 ```
 
 Both flags also accept the `--flag=value` form:
@@ -59,6 +60,7 @@ binary and assert on its exact output and exit codes.
 | `--name` *(no value)* | `error: a value is required for '--name <name>'…` | 2 |
 | `--bogus` | `error: unexpected argument '--bogus' found` | 2 |
 | `--help`, `-h` | clap's generated help | 0 |
+| `--version`, `-V` | `nomansland 0.1.0` (version from Cargo.toml) | 0 |
 | `--name --help` | `hello, --help!` (flag-like values are accepted) | 0 |
 | `--name a --name b` | `error: the argument '--name <name>' cannot be used multiple times` | 2 |
 | `--count 2 --count 5` | `error: the argument '--count <n>' cannot be used multiple times` | 2 |
@@ -68,7 +70,7 @@ binary and assert on its exact output and exit codes.
 
 Names are printed exactly as supplied (validation rejects empty names but never
 trims or otherwise rewrites accepted ones). Errors are reported left to right:
-the first offending token wins, even before a later `--help`.
+the first offending token wins, even before a later `--help` or `--version`.
 
 ## Further reading
 
