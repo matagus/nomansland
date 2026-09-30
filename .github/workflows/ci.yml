@@ -1,0 +1,43 @@
+# Plain GitHub Actions CI (not a gh-aw agentic workflow): format, lint, test.
+# Runs on every pull request and on pushes to main. The agent loop in
+# pi-implement-issue.md / pi-review-pr.md produces PRs, so this gates them
+# independently of the AI reviewer.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: fmt / clippy / test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry and target dir
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - name: Check formatting
+        run: cargo fmt --all --check
+
+      - name: Lint
+        run: cargo clippy --all-targets --locked -- -D warnings -W clippy::pedantic
+
+      - name: Test
+        run: cargo test --locked

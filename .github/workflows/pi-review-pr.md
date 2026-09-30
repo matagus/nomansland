@@ -163,11 +163,15 @@ safe-outputs:
               echo "PR #$PR_NUMBER is a draft; marking ready for review"
               gh pr ready "$PR_NUMBER"
             fi
-            if ! gh pr merge "$PR_NUMBER" --squash --delete-branch --body "pi-agent review: $REASON"; then
+            # --auto: the merge waits server-side for the required CI check
+            # (fmt / clippy / test, enforced by branch protection on main)
+            # instead of burning Actions minutes on a watching job. If CI has
+            # already passed, this merges immediately.
+            if ! gh pr merge "$PR_NUMBER" --auto --squash --delete-branch --body "pi-agent review: $REASON"; then
               echo "::error::could not merge PR #$PR_NUMBER"
               exit 1
             fi
-            echo "merged PR #$PR_NUMBER into $BASE_BRANCH"
+            echo "merge scheduled for PR #$PR_NUMBER into $BASE_BRANCH (auto-merge waits for required CI checks)"
         - name: Record rejection
           if: steps.verdict.outputs.verdict != 'approve'
           env:
@@ -190,9 +194,10 @@ A pull request was just opened in this repository. You are the reviewer. Be genu
 2. Read the **full diff** against the base branch, not only the changed lines in isolation. Understand what the pull request claims to do and which issue it addresses.
 3. Check correctness first: does the change actually do what the linked issue asked? Is it complete, or does it satisfy only part of the request? Does it break existing behaviour — especially argument parsing, error messages, exit codes, and the `--flag=value` forms?
 4. Verify it builds and runs. Run `cargo build`, then exercise `./target/debug/nomansland` with valid input, edge cases (empty values, `--count 0`, very large counts, non-numeric counts) and invalid input. A pull request that does not compile or crashes is automatically blocking.
-5. Look for quality problems: unidiomatic Rust, needless clones or allocations, ignored `Result`s, panics reachable from user input (`unwrap`/`expect` on external data), dead code, misleading comments, scope creep beyond the issue.
-6. Look for security and safety problems: injection through arguments, unbounded loops or memory growth driven by user input, secret leakage in output.
-7. Deliver exactly one consistent verdict:
+5. Verify it passes CI locally: run `cargo fmt --all --check`, `cargo clippy --all-targets --locked -- -D warnings -W clippy::pedantic`, and `cargo test --locked`. The CI workflow (`.github/workflows/ci.yml`) runs the same commands and is a required check on `main`, so any failure here is automatically blocking — say which command failed and paste the relevant output.
+6. Look for quality problems: unidiomatic Rust, needless clones or allocations, ignored `Result`s, panics reachable from user input (`unwrap`/`expect` on external data), dead code, misleading comments, scope creep beyond the issue.
+7. Look for security and safety problems: injection through arguments, unbounded loops or memory growth driven by user input, secret leakage in output.
+8. Deliver exactly one consistent verdict:
    - **Blocking or important issue found**: submit a review with `REQUEST_CHANGES`, add inline comments on the specific offending lines, add the `ai-needs-work` label, and do **not** call `merge_approved_pr`. Explain each problem concretely — file, line, why it matters, what would make it acceptable.
    - **No blocking or important issue found**: submit a review with `COMMENT` confirming what you checked and that it is sound, add the `ai-approved` label, then call `merge_approved_pr` with `verdict: "approve"` and your summary as `reason`.
 

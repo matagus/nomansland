@@ -37,7 +37,10 @@ fn assert_error_shape(out: &Output, message: &str) {
         err.starts_with(&format!("error: {message}\n\nnomansland - say hello")),
         "stderr did not start with the expected 'error: <msg>\\n\\n<usage>' shape:\n{err}"
     );
-    assert!(err.contains("Usage:"), "error output must include the usage block");
+    assert!(
+        err.contains("Usage:"),
+        "error output must include the usage block"
+    );
 }
 
 // Row: *(no arguments)* -> `hello, world!`, exit 0
@@ -144,7 +147,10 @@ fn help_prints_usage_to_stdout() {
 fn help_short_circuits_other_flags() {
     let out = run(&["--name", "ada", "--count", "3", "-h"]);
     assert_eq!(code(&out), 0);
-    assert!(!stdout(&out).contains("hello, "), "help must suppress greetings");
+    assert!(
+        !stdout(&out).contains("hello, "),
+        "help must suppress greetings"
+    );
 }
 
 // Edge: `--bogus --help` -> error, exit 1; argument order decides.

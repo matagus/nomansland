@@ -112,6 +112,10 @@ An issue was just opened in this repository. Read it, implement it, and open a p
 4. Implement the change. Keep it idiomatic Rust and consistent with the code already in the repository. Do not add external crates unless the issue genuinely requires one.
 5. Verify your work:
    - `cargo build` must succeed with no errors.
+   - `cargo fmt --all --check` must report no differences; if it does, run `cargo fmt` and re-check.
+   - `cargo clippy --all-targets --locked -- -D warnings -W clippy::pedantic` must pass with no warnings.
+   - `cargo test --locked` must pass.
+   - The CI workflow (`.github/workflows/ci.yml`) runs these same commands on your pull request; a PR that fails CI will not merge.
    - Run `./target/debug/nomansland` with arguments that exercise both the new behaviour and paths it could have broken, including at least one invalid-input case where you check the exit code.
    - Fix any compile error or wrong output before continuing. Never open a pull request that does not build.
 6. Open a pull request containing your change. In the description state: what the issue asked for, what you changed and why, exactly how you verified it (the commands you ran and their real output), and any limitation you knowingly left in place. Reference the issue number.

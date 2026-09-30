@@ -216,7 +216,7 @@ mod tests {
 
     /// Build an argument vector the way `main` sees it (program name skipped).
     fn argv(args: &[&str]) -> Vec<String> {
-        args.iter().map(|s| s.to_string()).collect()
+        args.iter().map(ToString::to_string).collect()
     }
 
     /// Parse raw string arguments through the real [`parse_args`] entry point.
@@ -310,7 +310,10 @@ mod tests {
     fn count_u32_overflow_is_rejected() {
         assert_eq!(
             parse(&["--count", "4294967296"]),
-            Err("invalid value for '--count': expected a positive integer, got '4294967296'".to_string())
+            Err(
+                "invalid value for '--count': expected a positive integer, got '4294967296'"
+                    .to_string()
+            )
         );
     }
 
@@ -335,18 +338,27 @@ mod tests {
     // Row: `--name` (no value) -> error: missing value for '--name', exit 1
     #[test]
     fn name_without_value_is_missing_value_error() {
-        assert_eq!(parse(&["--name"]), Err("missing value for '--name'".to_string()));
+        assert_eq!(
+            parse(&["--name"]),
+            Err("missing value for '--name'".to_string())
+        );
     }
 
     #[test]
     fn count_without_value_is_missing_value_error() {
-        assert_eq!(parse(&["--count"]), Err("missing value for '--count'".to_string()));
+        assert_eq!(
+            parse(&["--count"]),
+            Err("missing value for '--count'".to_string())
+        );
     }
 
     // Row: `--bogus` -> error: unknown argument: '--bogus', exit 1
     #[test]
     fn unknown_long_flag_is_rejected() {
-        assert_eq!(parse(&["--bogus"]), Err("unknown argument: '--bogus'".to_string()));
+        assert_eq!(
+            parse(&["--bogus"]),
+            Err("unknown argument: '--bogus'".to_string())
+        );
     }
 
     // Row: `-x` / `-` -> unknown arguments; single-dash forms are not bundled shorts
