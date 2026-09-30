@@ -289,6 +289,21 @@ fn empty_names_are_rejected() {
     }
 }
 
+// Row: `--name` values containing newlines/CR -> clap validation error,
+// exit 2 (issue #31): one greeting always prints exactly one line.
+#[test]
+fn names_with_line_breaks_are_rejected() {
+    for value in ["a\nb", "a\rb", "a\r\nb", "ada\n", "\nada"] {
+        let args = &["--name", value][..];
+        let out = run(args);
+        assert_error_shape(&out, args, "must not contain newlines");
+    }
+    // The `=` form is rejected the same way.
+    let args = &["--name=a\nb"][..];
+    let out = run(args);
+    assert_error_shape(&out, args, "must not contain newlines");
+}
+
 // Edge (issue #25): empty-name validation does not normalise; a padded
 // name still prints exactly as supplied.
 #[test]
