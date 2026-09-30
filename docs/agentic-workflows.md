@@ -10,10 +10,17 @@ loop. Workflows are authored as Markdown with YAML frontmatter and run the
 
 | Workflow | Trigger | Behaviour |
 | --- | --- | --- |
-| [`pi-implement-issue.md`](../.github/workflows/pi-implement-issue.md) | `issues: opened` | Reads the issue, implements the smallest fix, verifies it with `cargo build` plus manual runs, opens a `[bot]` PR. Posts an explanatory comment instead if the issue is not actionable. |
+| [`pi-triage-issue.md`](../.github/workflows/pi-triage-issue.md) | `issues: opened` | Reads the new issue, checks it for duplicates, scope, and clarity. Applies `ai-ready` (unlocks implementation), `ai-needs-info` + clarifying questions, or `ai-duplicate`/`ai-out-of-scope` + closes it. |
+| [`pi-implement-issue.md`](../.github/workflows/pi-implement-issue.md) | `issues: labeled` (`ai-ready`) | Reads the issue, implements the smallest fix, verifies it with `cargo build` plus manual runs, opens a `[bot]` PR. Posts an explanatory comment instead if the issue turns out not to be actionable. |
 | [`pi-review-pr.md`](../.github/workflows/pi-review-pr.md) | `pull_request: opened` | Reviews the diff, builds and exercises the binary, then either requests changes or approves and squash-merges into `main`. |
 
-Issue → implementation PR → CI checks → AI review → merge (or rejection).
+Issue → AI triage (`ai-ready`) → implementation PR → CI checks → AI review → merge (or rejection).
+
+The triage gate relies on GitHub's rule that `GITHUB_TOKEN`-authored events do
+not trigger other workflows: `pi-triage-issue.md` applies its labels through
+safe-outputs configured with `github-token: ${{ secrets.BOT_PAT }}`, so the
+`issues: labeled` event reaches `pi-implement-issue.md`. Humans can add
+`ai-ready` manually to skip (or unblock) triage.
 
 Plain GitHub Actions [`ci.yml`](../.github/workflows/ci.yml) runs `fmt`, `clippy` and
 `test` on every pull request, gating the bots' output independently of the AI reviewer.
@@ -60,6 +67,7 @@ OpenAI-compatible gateway:
 | Variable | Purpose | Current value |
 | --- | --- | --- |
 | `PI_PROVIDER` | Pi provider name to use | `qwen-token-plan` |
+| `PI_MODEL_TRIAGE` | Model for issue triage/critic | `qwen3.8-flash` |
 | `PI_MODEL_IMPLEMENT` | Model for issue → PR implementation | `qwen3.8-max` |
 | `PI_MODEL_REVIEW` | Model for PR review + merge decision | `deepseek-v4-pro` |
 
@@ -109,7 +117,7 @@ Secrets (Settings → Secrets and variables → Actions → Secrets):
 | `QWEN_TOKEN_PLAN_API_KEY` | Inference credential, read by `.github/pi-run.sh` |
 | `BOT_PAT` | Classic PAT with `repo` scope. Opens PRs and merges to `main` |
 
-Variables: `PI_PROVIDER`, `PI_MODEL_IMPLEMENT`, `PI_MODEL_REVIEW`,
+Variables: `PI_PROVIDER`, `PI_MODEL_TRIAGE`, `PI_MODEL_IMPLEMENT`, `PI_MODEL_REVIEW`,
 `GH_AW_DEFAULT_MAX_DAILY_AI_CREDITS` (see Operational notes).
 
 `QWEN_TOKEN_PLAN_API_KEY` is the environment variable Pi documents for the

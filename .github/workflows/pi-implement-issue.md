@@ -1,14 +1,20 @@
 ---
 name: Pi Implement Issue
 emoji: 🛠️
-description: Implement a fix or feature for a newly opened issue with Pi, then open a PR
+description: Implement a fix or feature for an issue triaged as ai-ready, then open a PR
 on:
   issues:
-    types: [opened]
+    types: [labeled]
   # Only repo actors with these exact roles may trigger this workflow.
   # Note: matching is exact (no hierarchy) and this equals the gh-aw default;
   # stated explicitly so the restriction is visible and intentional.
   roles: [admin, maintainer, write]
+# Gated behind the `ai-ready` label applied by pi-triage-issue.md (or a human).
+# Note: the label event only reaches this workflow when the label was applied
+# with a PAT (BOT_PAT), not with GITHUB_TOKEN - GitHub suppresses triggers for
+# GITHUB_TOKEN-authored events. pi-triage-issue.md's safe-outputs already use
+# BOT_PAT for exactly this reason.
+if: github.event.label.name == 'ai-ready'
 # Pi cannot be pointed at a custom OpenAI-compatible endpoint through gh-aw's
 # native routing (see docs/agentic-workflows.md "Why a wrapper is needed"), so
 # inference runs directly via
@@ -108,7 +114,7 @@ An issue was just opened in this repository. Read it, implement it, and open a p
 
 ## What to do
 
-1. Read the triggering issue carefully: its title, body, and any labels. Work out what is actually being asked — a bug fix, a small feature, or a clarification request.
+1. Read the triggering issue carefully: its title, body, all comments, and any labels. The issue has already passed triage (`ai-ready`), but re-check that it is actionable — if it is not (e.g. the discussion in the comments changed the picture), post a comment explaining why and stop instead of opening a pull request.
 2. Explore the repository before writing anything. It is a small Rust command line app (`src/main.rs`, no third-party dependencies by design). Understand the existing argument-parsing style before you extend it.
 3. Decide whether the issue is actionable:
    - **Not actionable** (a question, a duplicate, unclear, or out of scope for this project): post a comment on the issue explaining why and stop. Do not open a pull request.
