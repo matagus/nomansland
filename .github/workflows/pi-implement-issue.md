@@ -5,6 +5,10 @@ description: Implement a fix or feature for a newly opened issue with Pi, then o
 on:
   issues:
     types: [opened]
+  # Only repo actors with these exact roles may trigger this workflow.
+  # Note: matching is exact (no hierarchy) and this equals the gh-aw default;
+  # stated explicitly so the restriction is visible and intentional.
+  roles: [admin, maintainer, write]
 # Pi cannot be pointed at a custom OpenAI-compatible endpoint through gh-aw's
 # native routing (see docs/agentic-workflows.md "Why a wrapper is needed"), so
 # inference runs directly via

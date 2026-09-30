@@ -5,6 +5,11 @@ description: Review a newly opened pull request with Pi; post a verdict, and mer
 on:
   pull_request:
     types: [opened]
+  # Only repo actors with these exact roles may trigger this workflow.
+  # Same allowlist as pi-implement-issue.md (equals the gh-aw default; stated
+  # explicitly). Note: the implement workflow opens PRs as the BOT_PAT owner,
+  # so that account must hold one of these roles for the review loop to run.
+  roles: [admin, maintainer, write]
 # See pi-implement-issue.md for why strict mode is off.
 strict: false
 features:
