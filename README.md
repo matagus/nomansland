@@ -19,14 +19,20 @@ cargo test
 
 ## Usage
 
+Argument parsing is delegated to [clap](https://docs.rs/clap) 4.6.7 (derive
+API), so `--help` prints clap's generated usage and parse failures use clap's
+standard error shape: `error: …` on stderr followed by a usage/help hint,
+with exit code 2.
+
 ```
-nomansland [OPTIONS]
+Say hello from the no man's land
+
+Usage: nomansland [OPTIONS]
 
 Options:
-  --name <name>     Who to greet (default: "world")
-  --count <n>       How many times to greet (default: 1)
-  --help, -h        Show this help text and exit
-  --                End of options; the next token is a plain value
+      --name <name>  Who to greet [default: world]
+      --count <n>    How many times to greet [default: 1]
+  -h, --help         Print help
 ```
 
 Both flags also accept the `--flag=value` form:
@@ -34,9 +40,6 @@ Both flags also accept the `--flag=value` form:
 ```bash
 ./target/debug/nomansland --name=ada --count=3
 ```
-
-No third-party dependencies — argument parsing is hand-rolled so the crate
-builds offline.
 
 ## Behaviour
 
@@ -49,23 +52,22 @@ binary and assert on its exact output and exit codes.
 | *(no arguments)* | `hello, world!` | 0 |
 | `--name ada` | `hello, ada!` | 0 |
 | `--name=ada --count 3` | three greeting lines | 0 |
-| `--count 0` or `--count=0` | `error: invalid value for '--count'…` | 1 |
-| `--count abc` | `error: invalid value for '--count'…` | 1 |
-| `--name` *(no value)* | `error: missing value for '--name'` | 1 |
-| `--bogus` | `error: unknown argument: '--bogus'` | 1 |
-| `--help`, `-h` | usage text | 0 |
+| `--count 0` or `--count=0` | `error: invalid value '0' for '--count <n>'…` | 2 |
+| `--count abc` | `error: invalid value 'abc' for '--count <n>'…` | 2 |
+| `--count -3` | `error: unexpected argument '-3' found` | 2 |
+| `--name` *(no value)* | `error: a value is required for '--name <name>'…` | 2 |
+| `--bogus` | `error: unexpected argument '--bogus' found` | 2 |
+| `--help`, `-h` | clap's generated help | 0 |
 | `--name --help` | `hello, --help!` (flag-like values are accepted) | 0 |
-| `--count --name` | `error: missing value for '--count'` | 1 |
-| `--name a --name b` | `error: duplicate argument: '--name'` | 1 |
-| `--count 2 --count 5` | `error: duplicate argument: '--count'` | 1 |
-| `--name ""` or `--name="   "` | `error: invalid value for '--name': must not be empty` | 1 |
-| `--name -- --help` | `hello, --help!` (`--` forces the value) | 0 |
+| `--name a --name b` | `error: the argument '--name <name>' cannot be used multiple times` | 2 |
+| `--count 2 --count 5` | `error: the argument '--count <n>' cannot be used multiple times` | 2 |
+| `--name ""` or `--name="   "` | `error: invalid value … must not be empty` | 2 |
 | `--` *(alone)* | `hello, world!` (terminator is a no-op) | 0 |
-| `-- --name ada` | `error: unexpected argument: '--name'` | 1 |
+| `-- --name ada` | `error: unexpected argument '--name' found` | 2 |
 
 Names are printed exactly as supplied (validation rejects empty names but never
-trims or otherwise rewrites accepted ones). Every error goes to stderr followed by the
-usage block.
+trims or otherwise rewrites accepted ones). Errors are reported left to right:
+the first offending token wins, even before a later `--help`.
 
 ## Further reading
 

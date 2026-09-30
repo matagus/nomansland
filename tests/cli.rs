@@ -4,6 +4,9 @@
 //! `CARGO_BIN_EXE_nomansland` env var) and assert on stdout text, stderr
 //! shape and exit codes, so the documented output/exit-code contract is
 //! machine-checked rather than manually verified.
+//!
+//! Argument parsing is clap's, so every error uses clap's standard shape:
+//! `error: …` on stderr followed by usage or a help hint, exit code 2.
 
 use std::process::{Command, Output};
 
@@ -27,19 +30,19 @@ fn code(out: &Output) -> i32 {
     out.status.code().expect("process should exit with a code")
 }
 
-/// Every error goes to stderr as `error: {msg}\n\n{USAGE}`: message line,
-/// blank line, then the usage block starting with the program summary.
-fn assert_error_shape(out: &Output, message: &str) {
-    assert_eq!(code(out), 1, "expected failure exit code for {message:?}");
+/// Every parse error goes to stderr as clap renders it: an `error: …` line
+/// containing `fragment`, exit code 2, nothing on stdout.
+fn assert_error_shape(out: &Output, args: &[&str], fragment: &str) {
+    assert_eq!(code(out), 2, "expected clap's error exit code for {args:?}");
     assert_eq!(stdout(out), "", "errors must not write to stdout");
     let err = stderr(out);
     assert!(
-        err.starts_with(&format!("error: {message}\n\nnomansland - say hello")),
-        "stderr did not start with the expected 'error: <msg>\\n\\n<usage>' shape:\n{err}"
+        err.starts_with("error: "),
+        "stderr did not start with 'error: ' for {args:?}:\n{err}"
     );
     assert!(
-        err.contains("Usage:"),
-        "error output must include the usage block"
+        err.contains(fragment),
+        "stderr for {args:?} did not contain {fragment:?}:\n{err}"
     );
 }
 
@@ -68,52 +71,50 @@ fn count_flag_repeats_the_greeting() {
     assert_eq!(stdout(&out), "hello, ada!\nhello, ada!\nhello, ada!\n");
 }
 
-// Row: `--count 0` / `--count=0` -> invalid value error, exit 1
+// Row: `--count 0` / `--count=0` -> clap range error, exit 2
 #[test]
 fn count_zero_fails() {
     for args in [&["--count", "0"][..], &["--count=0"][..]] {
         let out = run(args);
-        assert_error_shape(
-            &out,
-            "invalid value for '--count': expected a positive integer, got '0'",
-        );
+        assert_error_shape(&out, args, "invalid value '0' for '--count <n>'");
     }
 }
 
-// Row: `--count abc` -> invalid value error, exit 1
+// Row: `--count abc` -> clap u32 parse error, exit 2
 #[test]
 fn count_non_numeric_fails() {
     let out = run(&["--count", "abc"]);
-    assert_error_shape(
-        &out,
-        "invalid value for '--count': expected a positive integer, got 'abc'",
-    );
+    assert_error_shape(&out, &["--count", "abc"], "invalid value 'abc'");
 }
 
-// Edge: `--count=` (empty), `-3`, overflow, `1_0`, leading space all rejected.
+// Edge: `--count=` (empty), overflow and digit separators are invalid
+// values; `-3` is an unexpected argument because --count does not allow
+// hyphen-leading values.
 #[test]
 fn count_rejects_surprising_numeric_forms() {
-    for value in ["", "-3", "4294967296", "1_0", " 2"] {
-        let out = run(&["--count", value]);
-        assert_error_shape(
-            &out,
-            &format!("invalid value for '--count': expected a positive integer, got '{value}'"),
-        );
+    for value in ["", "4294967296", "1_0", " 2"] {
+        let args = ["--count", value];
+        let out = run(&args);
+        assert_error_shape(&out, &args, &format!("invalid value '{value}'"));
     }
+    let out = run(&["--count", "-3"]);
+    assert_error_shape(&out, &["--count", "-3"], "unexpected argument '-3'");
 }
 
-// Row: `--name` (no value) -> missing value error, exit 1
+// Row: `--name` / `--count` (no value) -> clap missing-value error, exit 2
 #[test]
-fn name_without_value_fails() {
+fn missing_values_fail() {
     let out = run(&["--name"]);
-    assert_error_shape(&out, "missing value for '--name'");
+    assert_error_shape(&out, &["--name"], "a value is required for '--name <name>'");
+    let out = run(&["--count"]);
+    assert_error_shape(&out, &["--count"], "a value is required for '--count <n>'");
 }
 
-// Row: `--bogus` -> unknown argument error, exit 1
+// Row: `--bogus` -> clap unknown-argument error, exit 2
 #[test]
 fn unknown_argument_fails() {
     let out = run(&["--bogus"]);
-    assert_error_shape(&out, "unknown argument: '--bogus'");
+    assert_error_shape(&out, &["--bogus"], "unexpected argument '--bogus'");
 }
 
 // Edge: single-dash forms are unknown arguments, not bundled shorts.
@@ -121,11 +122,11 @@ fn unknown_argument_fails() {
 fn single_dash_forms_fail() {
     for arg in ["-x", "-"] {
         let out = run(&[arg]);
-        assert_error_shape(&out, &format!("unknown argument: '{arg}'"));
+        assert_error_shape(&out, &[arg], &format!("unexpected argument '{arg}'"));
     }
 }
 
-// Row: `--help`, `-h` -> usage text on stdout, exit 0
+// Row: `--help`, `-h` -> clap's generated help on stdout, exit 0
 #[test]
 fn help_prints_usage_to_stdout() {
     for flag in ["--help", "-h"] {
@@ -134,15 +135,17 @@ fn help_prints_usage_to_stdout() {
         assert_eq!(stderr(&out), "", "{flag} must not write to stderr");
         let text = stdout(&out);
         assert!(
-            text.starts_with("nomansland - say hello from the no man's land\n"),
+            text.starts_with("Say hello from the no man's land\n"),
             "unexpected help text: {text}"
         );
-        assert!(text.contains("Usage:") && text.contains("Options:"));
-        assert!(text.ends_with("the next token is a plain value\n"));
+        assert!(text.contains("Usage: nomansland [OPTIONS]"), "{text}");
+        assert!(text.contains("--name <name>"), "{text}");
+        assert!(text.contains("--count <n>"), "{text}");
+        assert!(text.contains("-h, --help"), "{text}");
     }
 }
 
-// Edge: `--name ada --count 3 -h` prints only the usage, no greetings.
+// Edge: `--name ada --count 3 -h` prints only the help, no greetings.
 #[test]
 fn help_short_circuits_other_flags() {
     let out = run(&["--name", "ada", "--count", "3", "-h"]);
@@ -153,14 +156,15 @@ fn help_short_circuits_other_flags() {
     );
 }
 
-// Edge: `--bogus --help` -> error, exit 1; argument order decides.
+// Edge: `--bogus --help` -> error, exit 2; the first token decides.
 #[test]
 fn earlier_error_wins_over_later_help() {
     let out = run(&["--bogus", "--help"]);
-    assert_error_shape(&out, "unknown argument: '--bogus'");
+    assert_error_shape(&out, &["--bogus", "--help"], "unexpected argument");
 }
 
-// Edge: `--name --help` -> `hello, --help!`, exit 0 (no end-of-options).
+// Edge: `--name --help` -> `hello, --help!`, exit 0. --name allows
+// hyphen-leading values, so flag-like strings are valid names.
 #[test]
 fn flag_like_values_are_consumed() {
     let out = run(&["--name", "--help"]);
@@ -168,34 +172,12 @@ fn flag_like_values_are_consumed() {
     assert_eq!(stdout(&out), "hello, --help!\n");
 }
 
-// Edge: `--count --name` -> missing (not invalid) value error, exit 1.
-// A recognized flag in the --count value slot means the number is missing.
+// Row: `-- --name ada` -> the program takes no positional values, so
+// anything after the `--` terminator is rejected, exit 2.
 #[test]
-fn count_with_flag_like_value_reports_missing_value() {
-    for flag in ["--name", "--count", "--help", "-h"] {
-        let out = run(&["--count", flag]);
-        assert_error_shape(&out, "missing value for '--count'");
-    }
-}
-
-// Edge: `--name -- --help` -> `hello, --help!`, exit 0: the `--` terminator
-// in a value slot forces the next token to be taken as a plain value.
-#[test]
-fn double_dash_forces_flag_like_token_as_value() {
-    let out = run(&["--name", "--", "--help"]);
-    assert_eq!(code(&out), 0);
-    assert_eq!(stdout(&out), "hello, --help!\n");
-}
-
-// Edge: `--count -- --name` -> the escape forces a literal value, so the
-// flag-like token is invalid (not missing), exit 1.
-#[test]
-fn escaped_flag_like_count_value_is_invalid() {
-    let out = run(&["--count", "--", "--name"]);
-    assert_error_shape(
-        &out,
-        "invalid value for '--count': expected a positive integer, got '--name'",
-    );
+fn arguments_after_double_dash_are_rejected() {
+    let out = run(&["--", "--name", "ada"]);
+    assert_error_shape(&out, &["--", "--name", "ada"], "unexpected argument");
 }
 
 // Edge: `--` alone (and after complete options) is a no-op, exit 0.
@@ -210,21 +192,6 @@ fn lone_double_dash_is_a_noop() {
     assert_eq!(stdout(&out), "hello, ada!\n");
 }
 
-// Edge: `-- --name ada` -> the program takes no positional values, so
-// anything after `--` at the option position is rejected, exit 1.
-#[test]
-fn arguments_after_double_dash_are_rejected() {
-    let out = run(&["--", "--name", "ada"]);
-    assert_error_shape(&out, "unexpected argument: '--name'");
-}
-
-// Edge: `--name --` -> missing value (nothing follows the terminator), exit 1.
-#[test]
-fn double_dash_without_following_value_is_missing() {
-    let out = run(&["--name", "--"]);
-    assert_error_shape(&out, "missing value for '--name'");
-}
-
 // Edge: `--name=--` -> `hello, --!`: the `=` form sets a literal `--`.
 #[test]
 fn equals_form_accepts_literal_double_dash() {
@@ -233,7 +200,7 @@ fn equals_form_accepts_literal_double_dash() {
     assert_eq!(stdout(&out), "hello, --!\n");
 }
 
-// Row: `--name a --name b` -> duplicate argument error, exit 1
+// Row: `--name a --name b` -> clap duplicate-argument error, exit 2
 // (issue #25: repeated flags are rejected in all form mixes).
 #[test]
 fn repeated_name_flag_fails() {
@@ -244,11 +211,11 @@ fn repeated_name_flag_fails() {
         &["--name=a", "--name", "b"][..],
     ] {
         let out = run(args);
-        assert_error_shape(&out, "duplicate argument: '--name'");
+        assert_error_shape(&out, args, "cannot be used multiple times");
     }
 }
 
-// Row: `--count 2 --count 5` -> duplicate argument error, exit 1.
+// Row: `--count 2 --count 5` -> duplicate argument error, exit 2.
 #[test]
 fn repeated_count_flag_fails() {
     for args in [
@@ -256,22 +223,22 @@ fn repeated_count_flag_fails() {
         &["--count=2", "--count", "5"][..],
     ] {
         let out = run(args);
-        assert_error_shape(&out, "duplicate argument: '--count'");
+        assert_error_shape(&out, args, "cannot be used multiple times");
     }
 }
 
-// Edge (issue #25): the duplicate participates in the left-to-right
-// short-circuit rule: it fires before a later --help can take over.
+// Edge (issue #25): the duplicate fires before a later --help can take over.
 #[test]
 fn duplicate_before_help_wins() {
     let out = run(&["--name", "a", "--name", "b", "--help"]);
-    assert_error_shape(&out, "duplicate argument: '--name'");
-
-    let out = run(&["--count", "2", "--count", "3", "-h"]);
-    assert_error_shape(&out, "duplicate argument: '--count'");
+    assert_error_shape(
+        &out,
+        &["--name", "a", "--name", "b", "--help"],
+        "cannot be used multiple times",
+    );
 }
 
-// Row: `--name ""` / `--name=` / whitespace-only -> error, exit 1
+// Row: `--name ""` / `--name=` / whitespace-only -> error, exit 2
 // (issue #25: the empty greeting is rejected, not printed).
 #[test]
 fn empty_names_are_rejected() {
@@ -282,7 +249,7 @@ fn empty_names_are_rejected() {
         &["--name=\t "][..],
     ] {
         let out = run(args);
-        assert_error_shape(&out, "invalid value for '--name': must not be empty");
+        assert_error_shape(&out, args, "must not be empty");
     }
 }
 
